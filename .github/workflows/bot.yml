@@ -1,1 +1,316 @@
+	name: IPYNB_PARSER
 
+  on:
+    pull_request:
+      branches: [ master, main ]
+      types: [opened, synchronize, reopened, edited]
+  env:
+    ERRORS: ''
+    WARNINGS: ''
+    INFO: ''
+    CRITICAL: ''
+
+    IMPORT_BOTNOTIFIER: |
+      class BotNotifier:
+        def __init__(self, github_env_path, prev_errors, prev_warnings, prev_info_pr):
+          self.runner = open(github_env_path,'a')
+          self.new_line = '\\\\n'
+          self.errors_ = self.new_line.join(prev_errors.split('\n'))
+          self.info_pr_ = self.new_line.join(prev_info_pr.split('\n'))
+          self.warnings_ = self.new_line.join(prev_warnings.split('\n'))
+          self.critical_ = ''
+        def set_env_and_close_runner(self):
+          self.runner.write(self.form_instuction('ERRORS',self.errors_))
+          self.runner.write(self.form_instuction('WARNINGS',self.warnings_))
+          self.runner.write(self.form_instuction('INFO',self.info_pr_))
+          self.runner.write(self.form_instuction('CRITICAL',self.critical_))
+          self.runner.close()
+        def info(self,message):
+          self.info_pr_+=message+self.new_line
+        def error(self, message):
+          self.errors_+=message+self.new_line
+        def warning(self, message):
+          self.warnings_+=message+self.new_line
+        def critical(self, message):
+          self.critical_+=message+self.new_line
+        def form_instuction(self, env_name, value):
+          if not value:
+            return ''
+          return env_name+'='+value+'\n'
+  jobs:
+    check_ipynb:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v2
+        - uses: actions/setup-python@v3
+          with:
+            python-version: '3.7'
+        - name: Установка библиотек
+          run: |
+            pip install pyenchant
+            pip install pymorphy2[fast]
+            python -m pip install --upgrade pip
+            pip install pytz
+            sudo apt-get install myspell-ru
+        - name: Имя PR
+          run: echo ${{github.event.pull_request.title}}
+        - name: Формирование пути до файла по PR и проверка, что файл существует
+          id: check_path
+          run: |
+            python3 << END
+            import os.path
+            import re
+            ${{env.IMPORT_BOTNOTIFIER}}
+            notifier = BotNotifier('$GITHUB_ENV','${{env.ERRORS}}','${{env.WARNINGS}}','${{env.INFO}}')
+            pr_name =  '${{github.event.pull_request.title}}'
+            items = pr_name.split('_')
+            items[0:3] = ['_'.join(items[0:3])]
+            lab_num = items[-1]
+            path = '/'.join(items)+'.ipynb' 
+    
+            if not re.match(r'^\d{4}_[a-zA-Z]+_[a-zA-Z]+_(lab|task)\d{1,2}$', pr_name):
+              notifier.critical('Название PR не соотвествует шаблону <Номер группы>_<Фамилия>_<Инициалы>_(lab|task)<номер работы>!')
+              path=''
+              lab_num=''
+
+            if path and not os.path.exists(path):
+              notifier.critical('Файл не найден по шаблону <Номер группы>_<Фамилия_Инициалы>/(lab|task)<номер работы>.ipynb')
+              path=''
+              lab_num=''
+
+            print(f'::set-output name=path::'+path)
+            print(f'::set-output name=labnum::'+lab_num)
+
+            notifier.set_env_and_close_runner()
+            END
+        - name: Чтение config
+          if: ${{ env.CRITICAL  == ''}}
+          id: config_check
+          run: |
+            python3 << END
+            import json
+            ${{env.IMPORT_BOTNOTIFIER}}
+            notifier = BotNotifier('$GITHUB_ENV','${{env.ERRORS}}','${{env.WARNINGS}}','${{env.INFO}}')
+            try:
+                with open('.github/workflows/config.json', 'r') as f:
+                    config = json.load(f)
+        
+                points = config.get("settings").get("points")
+                work = config.get("works").get("${{steps.check_path.outputs.labnum}}")
+                
+                if points and work:
+                    deadline = work.get("deadline")
+                    if work.get("kernel"):
+                        language = work.get("kernel")
+                    else:
+                        language = config.get("default_kernel")
+                    
+                    print(f'::set-output name=points::'+str(points))
+                    print(f'::set-output name=deadline::'+deadline)
+                    print(f'::set-output name=language::'+str(language))
+                else:
+                    notifier.critical("Нет работы в конфиге")    
+        
+            except FileNotFoundError:
+                notifier.critical("No config in repository")
+            notifier.set_env_and_close_runner()
+            END
+        - name: Проверка дедлайнов
+          if: ${{ env.CRITICAL  == ''}}
+          id: checkdeadline
+          run: |
+            python3 << END
+            from datetime import datetime
+            import pytz
+            ${{env.IMPORT_BOTNOTIFIER}}
+            notifier = BotNotifier('$GITHUB_ENV','${{env.ERRORS}}','${{env.WARNINGS}}','${{env.INFO}}')
+            deadline = "${{steps.config_check.outputs.deadline}}"
+            date_time_str = '${{github.event.pull_request.created_at}}'
+            timezone = pytz.timezone("Europe/Moscow")
+            date_time_obj = datetime.strptime(date_time_str, "%Y-%m-%dT%H:%M:%SZ").astimezone(timezone)
+            creation_date = str(date_time_obj.date())
+            creation_time = str(date_time_obj.time())
+            if creation_date <= deadline:                
+              notifier.info('Работа загружена: '+creation_date+' '+creation_time)
+            else:
+              notifier.info('Работа загружена: '+creation_date+' '+creation_time)
+              notifier.error('**Вы опоздали ):**')
+              notifier.error('Работа загружена: '+creation_date+' '+creation_time)
+              notifier.error('Дедлайн: '+deadline)  
+            notifier.set_env_and_close_runner()
+            END
+        - name: Проверка наличия пунктов
+          if: ${{ env.CRITICAL  == ''}}
+          run: |
+              python3 <<END
+              import json
+              import re
+              import pymorphy2
+              import enchant
+              import difflib
+              
+              ${{env.IMPORT_BOTNOTIFIER}}
+              notifier = BotNotifier('$GITHUB_ENV','${{env.ERRORS}}','${{env.WARNINGS}}','${{env.INFO}}')
+              
+              def jsonParce(data):
+                markdown = []
+                cells = data.get("cells")
+                for cell in cells:
+                    if cell.get("cell_type") == "markdown":
+                        for md in cell.get("source"):
+                            if md != "\n":
+                                markdown.append(md)
+                return markdown,  data.get("metadata").get("kernelspec").get("language")
+          
+              def check_title(text):
+                  result = re.match(r'(#\s+(Практическая|Лабораторная)\sработа\s№\s?\d+\s*:)', text)
+                  
+                  if not result:
+                      notifier.error('Некорректное название работы, не найден заголовок')
+                      return
+                  if len(text[len(result.group(0)):-1]) < 3:
+                      notifier.error('Название работы пустое')
+              def check_author(text):
+                  if not re.match(
+                      r'^(В|в)ыполнила?\s+студент(ка)?\s+(гр\.|группы)\s+\d{4}\s[А-Я|A-Z][а-я|a-z]+\s[А-Я|A-Z][а-я|a-z]+,?\s+(В|в)ариант\s+?\d{1,2}\.?(\\n)?',
+                     text):
+                      notifier.error("Строка 2 - Некорректное название работы, не соотвествует шаблону <Выполнил студент гр. 2022 Иванов Иван, вариант N>")
+              def parse_russian_words(text): 
+                  res = re.findall(r'[а-яА-Я]+', text)
+                  return res
+              def check_words_for_impersonality(words):
+                  morph = pymorphy2.MorphAnalyzer()
+                  for word in words: 
+                      p = morph.parse(word)[0]
+                      warning = False
+                      if {'NPRO'} in p.tag and {'femn'} not in p.tag and {'masc'} not in p.tag and {'gent'} not in p.tag and {'3per'} not in p.tag: 
+                          warning = True
+                      if warning:
+                          print(p.tag)
+                          notifier.warning("Отчет должен быть в безличностной форме. Ошибка в слове: " + word)
+              def suggest_word(word, dictionary):
+                  suggestions = set(dictionary.suggest(word))
+                  if not len(suggestions):
+                      return
+                  sim = dict() 
+                  for _word in suggestions:
+                      measure = difflib.SequenceMatcher(None, word, _word).ratio()
+                      sim[measure] = _word
+                  if len(suggestions)>10:
+                      notifier.warning( "Ошибка в слове "+word+" Возможно в имели в виду:"+ sim[max(sim.keys())])
+              def check_proper_name(word):
+                  return 'А'< word[0] <'Я'
+              def check_words_for_spelling(words):
+                  dictionary = enchant.Dict("ru_RU")
+                  for word in words:
+                      if not dictionary.check(word) and len(word) > 3 and not check_proper_name(word):
+                          suggest_word(word, dictionary)
+              def check_for_impersonality_and_spelling(text):
+                  words = parse_russian_words(text)
+                  check_words_for_impersonality(words)
+                  check_words_for_spelling(words)
+                  
+              def changePoints(markdown):
+                  
+                  substrings = eval("${{steps.config_check.outputs.points}}")
+                  
+                  print(substrings)
+              
+                  dict_substrings = dict.fromkeys(substrings, False)
+                
+                  for key in dict_substrings:
+                      for row in markdown:
+                          re_key = r'^##\s+' + key
+                          if re.search(re_key, row):
+                              dict_substrings[key] = True
+                              
+                  for row in markdown:
+                      check_for_impersonality_and_spelling(row)
+                      
+                  check_title(markdown[0])
+                  check_author(markdown[1])
+                                    
+                  if not all(dict_substrings.values()):
+                      notifier.error('**Отсутствуют обязательные пункты:**')
+                      for key in dict_substrings:
+                          if not dict_substrings[key]:
+                              notifier.error('* '+key)
+          
+          
+              def start_analyzing(path):
+                  try:
+                      notebook = open(path, encoding='utf-8')
+                      print('file open')
+                  except FileNotFoundError:
+                      print("No file")
+                  data = json.load(notebook)
+                  print('json load')
+                  notebook.close()
+                  markdown, language = jsonParce(data)
+                  print('json parced')
+                  notifier.info('Ядро: '+language)
+                  languages = eval("${{steps.config_check.outputs.language}}")
+                  if len(languages):
+                    if language not in languages:
+                      notifier.error('**Несоответствие требованиям по языку**')
+                      notifier.error('Ядро блокнота: ' + language)
+                      notifier.error('Разрешенные ядра: '  + str(languages))
+                  if len(markdown) > 0:    
+                    changePoints(markdown)
+                  else:
+                    notifier.error('**А где ячейки с markdown???**')
+          
+          
+              path = '${{steps.check_path.outputs.path}}'
+              print('start_analyzing')
+              start_analyzing(path)
+              notifier.set_env_and_close_runner()
+              END
+        - name: Критическая ошибка
+          if: ${{ env.CRITICAL  != ''}}
+          uses: andrewmusgrave/automatic-pull-request-review@0.0.2
+          with:
+            repo-token: '${{ secrets.GITHUB_TOKEN }}'
+            event: 'REQUEST_CHANGES'
+            body: |
+              ## Автоматическая проверка.
+              **Результат**:  Проверка не пройдена.
+              **Детали**: 
+              ${{env.CRITICAL}}
+        - name: Все хорошо
+          if: ${{ env.CRITICAL  == '' && env.ERRORS == '' && env.WARNINGS == ''}}
+          uses: andrewmusgrave/automatic-pull-request-review@0.0.2
+          with:
+            repo-token: '${{ secrets.GITHUB_TOKEN }}'
+            event: 'APPROVE'
+            body: |
+              ## Автоматическая проверка.
+              **Результат**:  Проверка пройдена.
+              **Информация о PR**: 
+              ${{env.INFO}}
+        - name: Все хорошо, но есть недочеты
+          if: ${{ env.CRITICAL  == '' && env.ERRORS == '' && env.WARNINGS != ''}}
+          uses: andrewmusgrave/automatic-pull-request-review@0.0.2
+          with:
+            repo-token: '${{ secrets.GITHUB_TOKEN }}'
+            event: 'APPROVE'
+            body: |
+              ## Автоматическая проверка.
+              **Результат**:  Проверка пройдена.
+              **Информация о PR**: 
+              ${{env.INFO}}
+              **Недочеты**: 
+              ${{env.WARNINGS}}
+        - name: Есть ошибки
+          if: ${{ env.CRITICAL  == '' && env.ERRORS != ''}}
+          uses: andrewmusgrave/automatic-pull-request-review@0.0.2
+          with:
+            repo-token: '${{ secrets.GITHUB_TOKEN }}'
+            event: 'REQUEST_CHANGES'
+            body: |
+              ## Автоматическая проверка.
+              **Результат**: Проверка не пройдена.
+              **Информация о PR**: 
+              ${{env.INFO}}
+              **Детали**: 
+              ${{env.ERRORS}}

@@ -1,0 +1,27 @@
+{
+  "default_kernel":["R"],
+  "settings":{
+      "need_to_check_impersonality":false,
+      "points":[
+        "Цель работы",
+        "Основные теоретические положения",
+        "Постановка задачи",
+        "Выполнение работы",
+        "Вывод"
+        ]
+  },
+  "works":{
+    "task1": {
+      "deadline":"2022-10-01",
+      "kernel":["R"]
+    },
+    "task2": {
+      "deadline":"2022-11-01",
+      "kernel":["R"]
+    },
+    "task3": {
+      "deadline":"2022-12-01",
+      "kernel":["R"]
+    }
+  }
+}
