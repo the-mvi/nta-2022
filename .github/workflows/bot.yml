@@ -1,4 +1,4 @@
-	name: IPYNB_PARSER
+  name: IPYNB_PARSER
 
   on:
     pull_request:
