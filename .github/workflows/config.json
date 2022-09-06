@@ -1,5 +1,5 @@
 {
-  "default_kernel":["R"],
+  "default_kernel":["R", "python"],
   "settings":{
       "need_to_check_impersonality":false,
       "points":[
@@ -13,15 +13,15 @@
   "works":{
     "task1": {
       "deadline":"2022-10-01",
-      "kernel":["R"]
+      "kernel":["R", "python"]
     },
     "task2": {
       "deadline":"2022-11-01",
-      "kernel":["R"]
+      "kernel":["R", "python"]
     },
     "task3": {
       "deadline":"2022-12-01",
-      "kernel":["R"]
+      "kernel":["R", "python"]
     }
   }
 }
