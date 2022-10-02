@@ -13,15 +13,15 @@
   },
   "works":{
     "task1": {
-      "deadline":"2022-10-01",
+      "deadline":"2022-10-15",
       "kernel":["R", "python"]
     },
     "task2": {
-      "deadline":"2022-11-01",
+      "deadline":"2023-11-01",
       "kernel":["R", "python"]
     },
     "task3": {
-      "deadline":"2022-12-01",
+      "deadline":"2023-12-01",
       "kernel":["R", "python"]
     }
   }
