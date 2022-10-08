@@ -339,8 +339,8 @@
                         if re.search(re_key, row):
                             dict_substrings[key] = True
             
-                check_title(markdown[0])
-                check_author(markdown[1])
+                #check_title(markdown[0])
+                #check_author(markdown[1])
             
                 if not all(dict_substrings.values()):
                     notifier.error('**Отсутствуют обязательные пункты:**')
