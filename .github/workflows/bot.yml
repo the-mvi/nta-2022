@@ -309,7 +309,8 @@
                       for md in cell.get("source"):
                           if md != "\n":
                               markdown.append(md)
-              return markdown,  data.get("metadata").get("kernelspec").get("language")
+              language = data.get("metadata").get("kernelspec").get("display_name") if data.get("metadata").get("kernelspec").get("language") is None else data.get("metadata").get("kernelspec").get("language")
+              return markdown, language
             
             def check_title(text):
                 result = re.match(r'(#\s+(Практическая|Лабораторная)\sработа\s№\s?\d+\s*:)', text)
