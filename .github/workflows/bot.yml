@@ -156,7 +156,7 @@
             date_time_obj = datetime.strptime(date_time_str, "%Y-%m-%dT%H:%M:%SZ").astimezone(timezone)
             creation_date = str(date_time_obj.date())
             creation_time = str(date_time_obj.time())
-            if creation_date <= deadline:                
+            if creation_date < deadline:                
               notifier.info('Работа загружена: '+creation_date+' '+creation_time)
             else:
               notifier.info('Работа загружена: '+creation_date+' '+creation_time)
@@ -309,7 +309,8 @@
                       for md in cell.get("source"):
                           if md != "\n":
                               markdown.append(md)
-              return markdown,  data.get("metadata").get("kernelspec").get("language")
+              language = data.get("metadata").get("kernelspec").get("display_name") if data.get("metadata").get("kernelspec").get("language") is None else data.get("metadata").get("kernelspec").get("language")
+              return markdown, language
             
             def check_title(text):
                 result = re.match(r'(#\s+(Практическая|Лабораторная)\sработа\s№\s?\d+\s*:)', text)
